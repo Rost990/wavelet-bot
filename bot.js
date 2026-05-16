@@ -34,7 +34,7 @@ bot.on("message", async (msg) => {
 
     if (msg.text === "/start") {
         return bot.sendMessage(chatId,
-            "🎧 Spotify Bot\nНапиши название трека"
+            "🎧 Вас приветствует wavelet music bot\nНапиши название трека"
         );
     }
 
