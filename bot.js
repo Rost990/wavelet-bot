@@ -13,7 +13,6 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
 const MUSIC_DIR = "./music";
 if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
 
-// ===== STATE =====
 let tracksStore = {};
 let queue = {};
 let current = {};
@@ -23,9 +22,7 @@ let favorites = {};
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-// ==========================
 // 🎧 ПОИСК
-// ==========================
 
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
@@ -65,10 +62,6 @@ bot.on("message", async (msg) => {
     }
 });
 
-// ==========================
-// 🎛 CALLBACK
-// ==========================
-
 bot.on("callback_query", (q) => {
 
     bot.answerCallbackQuery(q.id).catch(() => {});
@@ -88,7 +81,7 @@ bot.on("callback_query", (q) => {
         if (!current[chatId]) playNext(chatId);
     }
 
-    // ❤️ FAVORITE
+    // ❤️ Избранное
     if (action === "fav") {
         if (!favorites[chatId]) favorites[chatId] = [];
 
@@ -107,10 +100,6 @@ bot.on("callback_query", (q) => {
         bot.sendMessage(chatId, "⏹ Остановлено");
     }
 });
-
-// ==========================
-// ▶ PLAY NEXT (АВТОПЛЕЙ)
-// ==========================
 
 async function playNext(chatId) {
 
@@ -150,7 +139,7 @@ async function playNext(chatId) {
             }
         });
 
-        // 🔁 автоплей
+        // 🔁 автопроигрыш
         setTimeout(() => {
             playNext(chatId);
         }, 2000);
