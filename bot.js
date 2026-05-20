@@ -6,16 +6,11 @@ const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-if (!process.env.BOT_TOKEN) {
-    console.log("❌ BOT_TOKEN missing");
-    process.exit(1);
-}
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
-    polling: true
 });
 
-const MUSIC_DIR = "/tmp/music";
-if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR, { recursive: true });
+const MUSIC_DIR = "./music";
+if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
 
 let tracksStore = {};
 let queue = {};
@@ -24,18 +19,18 @@ let favorites = {};
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
+// 🎧 ПОИСК
 
-bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        "🎧 Вас приветствует Wavelet-Bot\nНапиши название трека"
-    );
-});
-
-// Поиск
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
 
-    if (!msg.text || msg.text.startsWith("/")) return;
+    if (!msg.text) return;
+
+    if (msg.text === "/start") {
+        return bot.sendMessage(chatId,
+            "🎧 Вас приветствует wavelet-bot\nНапиши название трека"
+        );
+    }
 
     try {
         const res = await ytSearch(msg.text);
@@ -50,8 +45,8 @@ bot.on("message", async (msg) => {
                     reply_markup: {
                         inline_keyboard: [
                             [
-                                { text: "▶ Play", callback_data: `play:${i}` },
-                                { text: "❤️ Fav", callback_data: `fav:${i}` }
+                                { text: "▶", callback_data: `play:${i}` },
+                                { text: "❤️", callback_data: `fav:${i}` }
                             ]
                         ]
                     }
@@ -59,35 +54,35 @@ bot.on("message", async (msg) => {
             );
         });
 
-    } catch (e) {
-        console.log(e);
+    } catch {
         bot.sendMessage(chatId, "❌ Ошибка поиска");
     }
 });
-
-// CALLBACK 
+// 🎛 CALLBACK
 bot.on("callback_query", (q) => {
+
     bot.answerCallbackQuery(q.id).catch(() => {});
 
     const chatId = q.message.chat.id;
     const [action, index] = q.data.split(":");
 
     const track = tracksStore[chatId]?.[index];
-    if (!track) return;
 
     if (!queue[chatId]) queue[chatId] = [];
 
+    // ▶ PLAY
     if (action === "play") {
         queue[chatId].push(track);
-        bot.sendMessage(chatId, "➕ Добавлено в очередь");
+        bot.sendMessage(chatId, "➕ В очередь");
 
         if (!current[chatId]) playNext(chatId);
     }
 
+    // ❤️ Избранное
     if (action === "fav") {
         if (!favorites[chatId]) favorites[chatId] = [];
-        favorites[chatId].push(track);
 
+        favorites[chatId].push(track);
         bot.sendMessage(chatId, "❤️ Добавлено в избранное");
     }
 
@@ -97,13 +92,14 @@ bot.on("callback_query", (q) => {
 
     if (action === "stop") {
         current[chatId] = null;
-        queue[chatId] = [];
         bot.sendMessage(chatId, "⏹ Остановлено");
     }
 });
 
-//  PLAY
+// ▶  АВТОПЛЕЙ
+
 async function playNext(chatId) {
+
     if (!queue[chatId] || queue[chatId].length === 0) {
         current[chatId] = null;
         return bot.sendMessage(chatId, "📭 Очередь пуста");
@@ -121,12 +117,8 @@ async function playNext(chatId) {
                 const cmd = `yt-dlp -x --audio-format mp3 -o "${filePath}" "${track.url}"`;
 
                 exec(cmd, (err) => {
-                    if (err) {
-                        console.log("YT-DLP ERROR:", err.message);
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
+                    if (err) reject();
+                    else resolve();
                 });
             });
         }
@@ -136,19 +128,22 @@ async function playNext(chatId) {
             reply_markup: {
                 inline_keyboard: [
                     [
-                        { text: "⏭ Next", callback_data: "next:0" },
-                        { text: "⏹ Stop", callback_data: "stop:0" }
+                        { text: "⏭", callback_data: "next:0" },
+                        { text: "⏹", callback_data: "stop:0" }
                     ]
                 ]
             }
         });
 
-        setTimeout(() => playNext(chatId), 2000);
+        // 🔁 автоплей
+        setTimeout(() => {
+            playNext(chatId);
+        }, 2000);
 
     } catch (e) {
-        console.log("PLAY ERROR:", e.message);
+        console.log("PLAY ERROR");
 
         current[chatId] = null;
-        setTimeout(() => playNext(chatId), 1000);
+        playNext(chatId);
     }
 }
