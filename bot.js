@@ -112,6 +112,9 @@ bot.on("callback_query", async (q) => {
 });
 
 // 🔁 АВТОПЛЕЙ
+const { exec } = require("child_process");
+const fs = require("fs");
+
 async function playNext(chatId) {
     if (!queue[chatId] || queue[chatId].length === 0) {
         return bot.sendMessage(chatId, "📭 Очередь пуста");
@@ -119,27 +122,38 @@ async function playNext(chatId) {
 
     const track = queue[chatId].shift();
 
+    const file = `track_${Date.now()}.mp3`;
+
     try {
         await bot.sendMessage(chatId, `🎧 Играет: ${track.title}`);
 
-        const stream = ytdl(track.url, {
-            filter: "audioonly",
-            quality: "highestaudio",
-            highWaterMark: 1 << 25
-        });
+        const cmd = `yt-dlp -x --audio-format mp3 -o "${file}" "${track.url}"`;
 
-        await bot.sendAudio(chatId, stream, {
-            title: track.title,
-            performer: track.author?.name || "Unknown"
-        });
+        exec(cmd, async (err) => {
+            if (err) {
+                console.log("YT-DLP ERROR:", err.message);
 
-        // следующий трек
-        setTimeout(() => playNext(chatId), 2000);
+                // следующий трек
+                return playNext(chatId);
+            }
+
+            try {
+                await bot.sendAudio(chatId, file, {
+                    title: track.title
+                });
+
+                fs.unlinkSync(file);
+
+                setTimeout(() => playNext(chatId), 2000);
+
+            } catch (e) {
+                console.log("SEND ERROR:", e.message);
+                playNext(chatId);
+            }
+        });
 
     } catch (e) {
         console.log("PLAY ERROR:", e.message);
-
-        // если ошибка → следующий
         playNext(chatId);
     }
 }
