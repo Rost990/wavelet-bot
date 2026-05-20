@@ -2,7 +2,8 @@ require("dotenv").config();
 
 const TelegramBot = require("node-telegram-bot-api");
 const ytSearch = require("yt-search");
-const ytdl = require("ytdl-core");
+const { exec } = require("child_process");
+const fs = require("fs");
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
@@ -34,11 +35,10 @@ bot.onText(/\/start/, (msg) => {
     );
 });
 
-// 🔍 ПОИСК + WebApp
+// 🔍 MESSAGE
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
 
-    // если из Mini App
     if (msg.web_app_data) {
         return searchAndShow(chatId, msg.web_app_data.data);
     }
@@ -48,7 +48,7 @@ bot.on("message", async (msg) => {
     searchAndShow(chatId, msg.text);
 });
 
-// 🔍 функция поиска
+// 🔍 SEARCH
 async function searchAndShow(chatId, query) {
     try {
         const res = await ytSearch(query);
@@ -60,26 +60,29 @@ async function searchAndShow(chatId, query) {
 
         tracksStore[chatId] = tracks;
 
-        for (let i = 0; i < tracks.length; i++) {
-            const t = tracks[i];
-
-            await bot.sendMessage(chatId,
+        tracks.forEach((t, i) => {
+            bot.sendMessage(chatId,
                 `🎧 ${t.title}`,
                 {
                     reply_markup: {
-                        inline_keyboard: true
-                        
+                        inline_keyboard: [
+                            [
+                                { text: "▶️ Play", callback_data: `play:${i}` },
+                                { text: "➕ Queue", callback_data: `queue:${i}` }
+                            ]
+                        ]
                     }
                 }
             );
-        }
+        });
+
     } catch (e) {
         console.log("SEARCH ERROR:", e.message);
         bot.sendMessage(chatId, "❌ Ошибка поиска");
     }
 }
 
-// ▶️ PLAY / QUEUE
+// ▶️ CALLBACK
 bot.on("callback_query", async (q) => {
     bot.answerCallbackQuery(q.id).catch(() => {});
 
@@ -91,7 +94,7 @@ bot.on("callback_query", async (q) => {
 
     const track = list[Number(index)];
     if (!track) {
-        return bot.sendMessage(chatId, "❌ Трек устарел, попробуй снова");
+        return bot.sendMessage(chatId, "❌ Трек устарел");
     }
 
     if (!queue[chatId]) queue[chatId] = [];
@@ -102,15 +105,12 @@ bot.on("callback_query", async (q) => {
     }
 
     if (action === "play") {
-        queue[chatId] = [track]; // 🔥 фикс бага
+        queue[chatId] = [track];
         playNext(chatId);
     }
 });
 
-// 🔁 АВТОПЛЕЙ
-const { exec } = require("child_process");
-const fs = require("fs");
-
+// ▶️ PLAY
 async function playNext(chatId) {
     if (!queue[chatId] || queue[chatId].length === 0) {
         return bot.sendMessage(chatId, "📭 Очередь пуста");
@@ -118,18 +118,16 @@ async function playNext(chatId) {
 
     const track = queue[chatId].shift();
 
-    const file = `track_${Date.now()}.mp3`;
+    const file = `track_${chatId}_${Date.now()}.mp3`;
 
     try {
-        await bot.sendMessage(chatId, `🎧 Играет: ${track.title}`);
+        await bot.sendMessage(chatId, `🎧 Скачиваю: ${track.title}`);
 
         const cmd = `yt-dlp -x --audio-format mp3 -o "${file}" "${track.url}"`;
 
         exec(cmd, async (err) => {
             if (err) {
                 console.log("YT-DLP ERROR:", err.message);
-
-                // следующий трек
                 return playNext(chatId);
             }
 
@@ -140,7 +138,7 @@ async function playNext(chatId) {
 
                 fs.unlinkSync(file);
 
-                setTimeout(() => playNext(chatId), 2000);
+                setTimeout(() => playNext(chatId), 1500);
 
             } catch (e) {
                 console.log("SEND ERROR:", e.message);
