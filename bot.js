@@ -1,49 +1,57 @@
 require("dotenv").config();
 
-const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const ytSearch = require("yt-search");
-const { exec } = require("child_process");
-const fs = require("fs");
+const ytdl = require("ytdl-core");
 
-const app = express();
-app.use(express.json());
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 
-const bot = new TelegramBot(process.env.BOT_TOKEN);
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+    polling: true
+});
 
-const PORT = process.env.PORT || 3000;
-const URL = process.env.RENDER_URL;
-
-const WEBHOOK_PATH = `/bot${process.env.BOT_TOKEN}`;
-
-// память
 let tracksStore = {};
 let queue = {};
 
-// 🚀 webhook
-bot.setWebHook(`${URL}${WEBHOOK_PATH}`);
-
-// 📡 endpoint
-app.post(WEBHOOK_PATH, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
-
-// 🟢 старт
+// 🚀 START
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id,
-        "🎧 Music Bot\nНапиши название трека"
+        "🎧 Music Bot\nНапиши название трека\n\nИли открой плеер 👇",
+        {
+            reply_markup: {
+                keyboard: [
+                    [
+                        {
+                            text: "🎧 Открыть плеер",
+                            web_app: { url: process.env.WEBAPP_URL }
+                        }
+                    ]
+                ],
+                resize_keyboard: true
+            }
+        }
     );
 });
 
-// 🔍 поиск
+// 🔍 ПОИСК + WebApp
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
 
+    // если из Mini App
+    if (msg.web_app_data) {
+        return searchAndShow(chatId, msg.web_app_data.data);
+    }
+
     if (!msg.text || msg.text.startsWith("/")) return;
 
+    searchAndShow(chatId, msg.text);
+});
+
+// 🔍 функция поиска
+async function searchAndShow(chatId, query) {
     try {
-        const res = await ytSearch(msg.text);
+        const res = await ytSearch(query);
         const tracks = res.videos.slice(0, 5);
 
         if (!tracks.length) {
@@ -59,24 +67,19 @@ bot.on("message", async (msg) => {
                 `🎧 ${t.title}`,
                 {
                     reply_markup: {
-                        inline_keyboard: [
-                            [
-                                { text: "▶️ Play", callback_data: `play:${i}` },
-                                { text: "➕ Queue", callback_data: `queue:${i}` }
-                            ]
-                        ]
+                        inline_keyboard: true
+                        
                     }
                 }
             );
         }
-
     } catch (e) {
         console.log("SEARCH ERROR:", e.message);
         bot.sendMessage(chatId, "❌ Ошибка поиска");
     }
-});
+}
 
-// ▶️ кнопки
+// ▶️ PLAY / QUEUE
 bot.on("callback_query", async (q) => {
     bot.answerCallbackQuery(q.id).catch(() => {});
 
@@ -88,7 +91,7 @@ bot.on("callback_query", async (q) => {
 
     const track = list[Number(index)];
     if (!track) {
-        return bot.sendMessage(chatId, "❌ Трек устарел");
+        return bot.sendMessage(chatId, "❌ Трек устарел, попробуй снова");
     }
 
     if (!queue[chatId]) queue[chatId] = [];
@@ -99,18 +102,22 @@ bot.on("callback_query", async (q) => {
     }
 
     if (action === "play") {
-        queue[chatId] = [track];
+        queue[chatId] = [track]; // 🔥 фикс бага
         playNext(chatId);
     }
 });
 
-// 🔁 автоплей через yt-dlp
+// 🔁 АВТОПЛЕЙ
+const { exec } = require("child_process");
+const fs = require("fs");
+
 async function playNext(chatId) {
     if (!queue[chatId] || queue[chatId].length === 0) {
         return bot.sendMessage(chatId, "📭 Очередь пуста");
     }
 
     const track = queue[chatId].shift();
+
     const file = `track_${Date.now()}.mp3`;
 
     try {
@@ -120,7 +127,9 @@ async function playNext(chatId) {
 
         exec(cmd, async (err) => {
             if (err) {
-                console.log("YT ERROR:", err.message);
+                console.log("YT-DLP ERROR:", err.message);
+
+                // следующий трек
                 return playNext(chatId);
             }
 
@@ -144,8 +153,3 @@ async function playNext(chatId) {
         playNext(chatId);
     }
 }
-
-// 🚀 сервер
-app.listen(PORT, () => {
-    console.log("🚀 Webhook bot started");
-});
