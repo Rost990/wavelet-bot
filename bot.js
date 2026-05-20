@@ -67,12 +67,8 @@ async function searchAndShow(chatId, query) {
                 `🎧 ${t.title}`,
                 {
                     reply_markup: {
-                        inline_keyboard: [
-                            [
-                                { text: "▶️ Play", callback_data: `play:${i}` },
-                                { text: "➕ Очередь", callback_data: `queue:${i}` }
-                            ]
-                        ]
+                        inline_keyboard: true
+                        
                     }
                 }
             );
