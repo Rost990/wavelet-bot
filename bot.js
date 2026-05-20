@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
+    polling: true
 });
 
 const MUSIC_DIR = "./music";
@@ -19,6 +20,7 @@ let favorites = {};
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
+
 // 🎧 ПОИСК
 
 bot.on("message", async (msg) => {
@@ -28,7 +30,7 @@ bot.on("message", async (msg) => {
 
     if (msg.text === "/start") {
         return bot.sendMessage(chatId,
-            "🎧 Вас приветствует wavelet-bot\nНапиши название трека"
+            "🎧 Вас приветствует wavelet-bot \nНапишите название трека"
         );
     }
 
@@ -58,7 +60,9 @@ bot.on("message", async (msg) => {
         bot.sendMessage(chatId, "❌ Ошибка поиска");
     }
 });
+
 // 🎛 CALLBACK
+
 bot.on("callback_query", (q) => {
 
     bot.answerCallbackQuery(q.id).catch(() => {});
@@ -78,7 +82,7 @@ bot.on("callback_query", (q) => {
         if (!current[chatId]) playNext(chatId);
     }
 
-    // ❤️ Избранное
+    // Избранное
     if (action === "fav") {
         if (!favorites[chatId]) favorites[chatId] = [];
 
@@ -90,13 +94,16 @@ bot.on("callback_query", (q) => {
         playNext(chatId);
     }
 
+    // ⏹ STOP
     if (action === "stop") {
         current[chatId] = null;
         bot.sendMessage(chatId, "⏹ Остановлено");
     }
 });
 
-// ▶  АВТОПЛЕЙ
+
+// АВТОПЛЕЙ
+
 
 async function playNext(chatId) {
 
@@ -146,4 +153,4 @@ async function playNext(chatId) {
         current[chatId] = null;
         playNext(chatId);
     }
-}
+} 
