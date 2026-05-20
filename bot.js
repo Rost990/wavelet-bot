@@ -7,25 +7,19 @@ const fs = require("fs");
 const path = require("path");
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
-    polling: true
 });
 
 const MUSIC_DIR = "./music";
 if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
 
-// ===== STATE =====
 let tracksStore = {};
 let queue = {};
 let current = {};
 let favorites = {};
 
-// ===== АНТИ-КРАШ =====
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
-
-// ==========================
 // 🎧 ПОИСК
-// ==========================
 
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
