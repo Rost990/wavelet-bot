@@ -4,59 +4,43 @@ const TelegramBot = require("node-telegram-bot-api");
 const ytSearch = require("yt-search");
 const { exec } = require("child_process");
 const fs = require("fs");
-
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+const path = require("path");
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
     polling: true
 });
 
+const MUSIC_DIR = "./music";
+if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR);
+
+// ===== STATE =====
 let tracksStore = {};
 let queue = {};
+let current = {};
+let favorites = {};
 
-// 🚀 START
-bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id,
-        "🎧 Music Bot\nНапиши название трека\n\nИли открой плеер 👇",
-        {
-            reply_markup: {
-                keyboard: [
-                    [
-                        {
-                            text: "🎧 Открыть плеер",
-                            web_app: { url: process.env.WEBAPP_URL }
-                        }
-                    ]
-                ],
-                resize_keyboard: true
-            }
-        }
-    );
-});
+// ===== АНТИ-КРАШ =====
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 
-// 🔍 MESSAGE
+// ==========================
+// 🎧 ПОИСК
+// ==========================
+
 bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
 
-    if (msg.web_app_data) {
-        return searchAndShow(chatId, msg.web_app_data.data);
+    if (!msg.text) return;
+
+    if (msg.text === "/start") {
+        return bot.sendMessage(chatId,
+            "🎧 Вас приветствует wavelet-bot\nНапиши название трека"
+        );
     }
 
-    if (!msg.text || msg.text.startsWith("/")) return;
-
-    searchAndShow(chatId, msg.text);
-});
-
-// 🔍 SEARCH
-async function searchAndShow(chatId, query) {
     try {
-        const res = await ytSearch(query);
+        const res = await ytSearch(msg.text);
         const tracks = res.videos.slice(0, 5);
-
-        if (!tracks.length) {
-            return bot.sendMessage(chatId, "❌ Ничего не найдено");
-        }
 
         tracksStore[chatId] = tracks;
 
@@ -67,8 +51,8 @@ async function searchAndShow(chatId, query) {
                     reply_markup: {
                         inline_keyboard: [
                             [
-                                { text: "▶️ Play", callback_data: `play:${i}` },
-                                { text: "➕ Queue", callback_data: `queue:${i}` }
+                                { text: "▶", callback_data: `play:${i}` },
+                                { text: "❤️", callback_data: `fav:${i}` }
                             ]
                         ]
                     }
@@ -76,78 +60,96 @@ async function searchAndShow(chatId, query) {
             );
         });
 
-    } catch (e) {
-        console.log("SEARCH ERROR:", e.message);
+    } catch {
         bot.sendMessage(chatId, "❌ Ошибка поиска");
     }
-}
+});
+// 🎛 CALLBACK
+bot.on("callback_query", (q) => {
 
-// ▶️ CALLBACK
-bot.on("callback_query", async (q) => {
     bot.answerCallbackQuery(q.id).catch(() => {});
 
     const chatId = q.message.chat.id;
     const [action, index] = q.data.split(":");
 
-    const list = tracksStore[chatId];
-    if (!list) return;
-
-    const track = list[Number(index)];
-    if (!track) {
-        return bot.sendMessage(chatId, "❌ Трек устарел");
-    }
+    const track = tracksStore[chatId]?.[index];
 
     if (!queue[chatId]) queue[chatId] = [];
 
-    if (action === "queue") {
+    // ▶ PLAY
+    if (action === "play") {
         queue[chatId].push(track);
-        return bot.sendMessage(chatId, "➕ Добавлено в очередь");
+        bot.sendMessage(chatId, "➕ В очередь");
+
+        if (!current[chatId]) playNext(chatId);
     }
 
-    if (action === "play") {
-        queue[chatId] = [track];
+    // ❤️ Избранное
+    if (action === "fav") {
+        if (!favorites[chatId]) favorites[chatId] = [];
+
+        favorites[chatId].push(track);
+        bot.sendMessage(chatId, "❤️ Добавлено в избранное");
+    }
+
+    if (action === "next") {
         playNext(chatId);
+    }
+
+    if (action === "stop") {
+        current[chatId] = null;
+        bot.sendMessage(chatId, "⏹ Остановлено");
     }
 });
 
-// ▶️ PLAY
+// ▶  АВТОПЛЕЙ
+
 async function playNext(chatId) {
+
     if (!queue[chatId] || queue[chatId].length === 0) {
+        current[chatId] = null;
         return bot.sendMessage(chatId, "📭 Очередь пуста");
     }
 
     const track = queue[chatId].shift();
+    current[chatId] = track;
 
-    const file = `track_${chatId}_${Date.now()}.mp3`;
+    const fileName = track.title.replace(/[^\w]/g, "_") + ".mp3";
+    const filePath = path.join(MUSIC_DIR, fileName);
 
     try {
-        await bot.sendMessage(chatId, `🎧 Скачиваю: ${track.title}`);
+        if (!fs.existsSync(filePath)) {
+            await new Promise((resolve, reject) => {
+                const cmd = `yt-dlp -x --audio-format mp3 -o "${filePath}" "${track.url}"`;
 
-        const cmd = `yt-dlp -x --audio-format mp3 -o "${file}" "${track.url}"`;
-
-        exec(cmd, async (err) => {
-            if (err) {
-                console.log("YT-DLP ERROR:", err.message);
-                return playNext(chatId);
-            }
-
-            try {
-                await bot.sendAudio(chatId, file, {
-                    title: track.title
+                exec(cmd, (err) => {
+                    if (err) reject();
+                    else resolve();
                 });
+            });
+        }
 
-                fs.unlinkSync(file);
-
-                setTimeout(() => playNext(chatId), 1500);
-
-            } catch (e) {
-                console.log("SEND ERROR:", e.message);
-                playNext(chatId);
+        await bot.sendAudio(chatId, filePath, {
+            title: track.title,
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: "⏭", callback_data: "next:0" },
+                        { text: "⏹", callback_data: "stop:0" }
+                    ]
+                ]
             }
         });
 
+        // 🔁 автоплей
+        setTimeout(() => {
+            playNext(chatId);
+        }, 2000);
+
     } catch (e) {
-        console.log("PLAY ERROR:", e.message);
+        console.log("PLAY ERROR");
+
+        current[chatId] = null;
         playNext(chatId);
     }
 }
